@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>Kanji Draw</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="https://cdn.jsdelivr.net/npm/hanzi-writer@2.1.0/dist/hanzi-writer.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Segoe UI', sans-serif;
+      background: #f0f0f0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    #kanji-info {
+      text-align: center;
+      font-size: 1.4em;
+      padding: 0.5em 1em 0 1em;
+      color: #333;
+    }
+
+    #kanji-display {
+      font-size: 2.4em;
+      margin-bottom: 0.2em;
+    }
+
+    #kanji-meaning {
+      font-size: 0.9em;
+      color: #666;
+      word-break: break-word;
+    }
+
+    #draw-area {
+      flex-grow: 1;
+      width: 98vmin;
+      max-width: 750px;
+      background-color: white;
+      border: 2px solid #ccc;
+      border-radius: 15px;
+      position: relative;
+      overflow: hidden;
+      margin-top: 0.5em;
+    }
+
+    #canvas {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
+    }
+
+    #animation-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .btn {
+      position: absolute;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 55px;
+      height: 55px;
+      font-size: 1.4em;
+      cursor: pointer;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 3;
+    }
+
+    .btn.active {
+      background-color: #dc3545;
+    }
+
+    #toggle-btn {
+      bottom: 15px;
+      right: 15px;
+    }
+
+    #erase-btn {
+      bottom: 15px;
+      left: 15px;
+      background-color: #6c757d;
+    }
+
+    #brush-size-container {
+      position: absolute;
+      bottom: 15px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      background: rgba(255,255,255,0.9);
+      border-radius: 10px;
+      padding: 6px 10px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      gap: 8px;
+      font-size: 0.85em;
+    }
+
+    #brush-size {
+      width: 100px;
+    }
+
+    #next-btn {
+      margin: 10px auto;
+      padding: 10px 30px;
+      font-size: 1.2em;
+      background-color: #28a745;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+    }
+
+    #next-btn:hover {
+      background-color: #218838;
+    }
+  </style>
+</head>
+<body>
+  <div id="kanji-info">
+    <div id="kanji-display">?</div>
+    <div id="kanji-meaning">Loading...</div>
+  </div>
+
+  <div id="draw-area">
+    <canvas id="canvas"></canvas>
+    <div id="animation-container"></div>
+
+    <button id="toggle-btn" class="btn" title="Показать/Скрыть анимацию">
+      <i class="fas fa-video"></i>
+    </button>
+    <button id="erase-btn" class="btn" title="Стереть нарисованное">
+      <i class="fas fa-eraser"></i>
+    </button>
+
+    <div id="brush-size-container">
+      <label for="brush-size">Толщина</label>
+      <input type="range" id="brush-size" min="2" max="30" value="10" />
+    </div>
+  </div>
+
+  <button id="next-btn">Next</button>
+
+  <script>
+    let allKanji = [];
+    let currentKanji = "?";
+    let writer;
+    let animationVisible = false;
+
+    const kanjiDisplay = document.getElementById("kanji-display");
+    const kanjiMeaning = document.getElementById("kanji-meaning");
+
+    async function fetchKanjiList() {
+      const res = await fetch("https://kanjiapi.dev/v1/kanji/joyo");
+      allKanji = await res.json();
+      setRandomKanji();
+    }
+
+    async function setRandomKanji() {
+      currentKanji = allKanji[Math.floor(Math.random() * allKanji.length)];
+      kanjiDisplay.textContent = currentKanji;
+      await fetchMeaning(currentKanji);
+    }
+
+    async function fetchMeaning(kanji) {
+      try {
+        const res = await fetch(`https://kanjiapi.dev/v1/kanji/${kanji}`);
+        const data = await res.json();
+        kanjiMeaning.textContent = data.meanings?.join(', ') || "(?)";
+      } catch (e) {
+        kanjiMeaning.textContent = "(?)";
+      }
+    }
+
+    const animationContainer = document.getElementById("animation-container");
+    const toggleBtn = document.getElementById("toggle-btn");
+    const eraseBtn = document.getElementById("erase-btn");
+    const nextBtn = document.getElementById("next-btn");
+
+    toggleBtn.addEventListener("click", () => {
+      animationVisible = !animationVisible;
+
+      if (animationVisible) {
+        animationContainer.innerHTML = "";
+        writer = HanziWriter.create(animationContainer, currentKanji, {
+          width: animationContainer.offsetWidth,
+          height: animationContainer.offsetHeight,
+          padding: 5,
+          delayBetweenStrokes: 100,
+          strokeAnimationSpeed: 2,
+          showOutline: true,
+          showCharacter: false,
+        });
+        writer.animateCharacter();
+        toggleBtn.classList.add("active");
+      } else {
+        animationContainer.innerHTML = "";
+        toggleBtn.classList.remove("active");
+      }
+    });
+
+    eraseBtn.addEventListener("click", () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    });
+
+    nextBtn.addEventListener("click", () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      animationContainer.innerHTML = "";
+      toggleBtn.classList.remove("active");
+      animationVisible = false;
+      setRandomKanji();
+    });
+
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    ctx.lineWidth = 10;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "#000";
+
+    const brushSizeSlider = document.getElementById("brush-size");
+    brushSizeSlider.addEventListener("input", () => {
+      ctx.lineWidth = brushSizeSlider.value;
+    });
+
+    let drawing = false;
+
+    function resizeCanvas() {
+      canvas.width = canvas.offsetWidth;
+      canvas.height = canvas.offsetHeight;
+    }
+
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+
+    canvas.addEventListener("mousedown", e => {
+      drawing = true;
+      ctx.beginPath();
+      ctx.moveTo(e.offsetX, e.offsetY);
+    });
+
+    canvas.addEventListener("mousemove", e => {
+      if (!drawing) return;
+      ctx.lineTo(e.offsetX, e.offsetY);
+      ctx.stroke();
+    });
+
+    canvas.addEventListener("mouseup", () => drawing = false);
+    canvas.addEventListener("mouseleave", () => drawing = false);
+
+    canvas.addEventListener("touchstart", e => {
+      const touch = e.touches[0];
+      const rect = canvas.getBoundingClientRect();
+      ctx.beginPath();
+      ctx.moveTo(touch.clientX - rect.left, touch.clientY - rect.top);
+      drawing = true;
+    }, { passive: false });
+
+    canvas.addEventListener("touchmove", e => {
+      e.preventDefault();
+      if (!drawing) return;
+      const touch = e.touches[0];
+      const rect = canvas.getBoundingClientRect();
+      ctx.lineTo(touch.clientX - rect.left, touch.clientY - rect.top);
+      ctx.stroke();
+    }, { passive: false });
+
+    canvas.addEventListener("touchend", () => drawing = false);
+
+    window.onload = fetchKanjiList;
+  </script>
+</body>
+</html>
